@@ -59,20 +59,43 @@ addr=["NC","NC"]
 def get_data(smq,sma,smd,sml,sms,l,port_name):
     lidar=RPLidar(None,port_name)
     lis=lidar.iter_scans
-    for scan in lis():
-        if sms[0]: break
-        l.acquire() #Locking
-        sml[0]=int(len(scan))
-        for x in range(0,sml[0]):
-            n=scan[x]
-            smq[x]=n[0]
-            sma[x]=n[1]
-            smd[x]=n[2]
-        l.release() #Unlocking
-    lidar.stop()
-    lidar.set_pwm(0)
-    lidar.disconnect()
-    print('SCAN STOPPED!')
+    try:
+        for scan in lis():
+            if sms[0]: break
+            l.acquire() #Locking
+            sml[0]=int(len(scan))
+            for x in range(0,sml[0]):
+                n=scan[x]
+                smq[x]=n[0]
+                sma[x]=n[1]
+                smd[x]=n[2]
+            l.release() #Unlocking
+    except RPLidarException as e:
+        lidar.stop()
+        lidar.set_pwm(0)
+        lidar.disconnect()
+        print('SCAN STOPPED!')
+        print(e)
+    except ValueError as e:
+        print('Failure Due to Access Bug')
+        lidar.stop()
+        lidar.set_pwm(0)
+        lidar.disconnect()
+        print('SCAN STOPPED!')
+        print(e)
+    except KeyboardInterrupt as e:
+        lidar.stop()
+        lidar.set_pwm(0)
+        lidar.disconnect()
+        print('SCAN STOPPED!')
+        print(e)
+    try:
+        lidar.stop()
+        lidar.set_pwm(0)
+        lidar.disconnect()
+        print('SCAN STOPPED!')
+    except:
+        pass
 
 #Renderer
 def process_data(smq,sma,smd,sml,calls,dp):
