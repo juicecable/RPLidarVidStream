@@ -56,7 +56,15 @@ addr=["NC","NC"]
 #Definitions
 
 #Core Reciever
-def get_data(smq,sma,smd,sml,sms,l,port_name):
+def get_data(smqn,sman,smdn,smln,smsn,l,port_name):
+    
+    #Apperantly this is the Correct way to do Shared Memory
+    smq=shared_memory.ShareableList(name=smqn)
+    sma=shared_memory.ShareableList(name=sman)
+    smd=shared_memory.ShareableList(name=smdn)
+    sml=shared_memory.ShareableList(name=smln)
+    sms=shared_memory.ShareableList(name=smsn)
+    
     lidar=RPLidar(None,port_name)
     lis=lidar.iter_scans
     try:
@@ -148,7 +156,8 @@ sma=shared_memory.ShareableList([0.0]*400)
 smd=shared_memory.ShareableList([0.0]*400)
 sml=shared_memory.ShareableList([0])
 sms=shared_memory.ShareableList([False])
-p1=multiprocessing.Process(target=get_data,args=(smq,sma,smd,sml,sms,l,port_name),daemon=True)
+#Apperantly You have to Pass the Names, not the Objects of the Shared Memory
+p1=multiprocessing.Process(target=get_data,args=(smq.shm.name,sma.shm.name,smd.shm.name,sml.shm.name,sms.shm.name,l,port_name),daemon=True)
 p1.start()
 
 #Continuity Loop
