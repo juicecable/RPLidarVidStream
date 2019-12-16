@@ -67,43 +67,39 @@ def get_data(smqn,sman,smdn,smln,smsn,l,port_name):
     
     lidar=RPLidar(None,port_name)
     lis=lidar.iter_scans
-    try:
-        for scan in lis():
-            if sms[0]: break
-            l.acquire() #Locking
-            sml[0]=int(len(scan))
-            for x in range(0,sml[0]):
-                n=scan[x]
-                smq[x]=n[0]
-                sma[x]=n[1]
-                smd[x]=n[2]
-            l.release() #Unlocking
-    except RPLidarException as e:
-        lidar.stop()
-        lidar.set_pwm(0)
-        lidar.disconnect()
-        print('SCAN STOPPED!')
-        print(e)
-    except ValueError as e:
-        print('Failure Due to Access Bug')
-        lidar.stop()
-        lidar.set_pwm(0)
-        lidar.disconnect()
-        print('SCAN STOPPED!')
-        print(e)
-    except KeyboardInterrupt as e:
-        lidar.stop()
-        lidar.set_pwm(0)
-        lidar.disconnect()
-        print('SCAN STOPPED!')
-        print(e)
-    try:
-        lidar.stop()
-        lidar.set_pwm(0)
-        lidar.disconnect()
-        print('SCAN STOPPED!')
-    except:
-        pass
+    
+    #Speeding up locks
+    la=lock.acquire
+    lr=lock.release
+    while True: #Code Retry
+        try:
+            for scan in lis():
+                la() #Locking
+                if sms[0]: break #Graceful Shutdown Reciever
+                sml[0]=int(len(scan))
+                for x in range(0,sml[0]):
+                    n=scan[x]
+                    smq[x]=n[0]
+                    sma[x]=n[1]
+                    smd[x]=n[2]
+                lr() #Unlocking
+        except RPLidarException as e:
+            print('RPLidarException')
+            print(e)
+            break
+        except ValueError as e:
+            print('Failure Due to Access Bug')
+            print(e)
+            break
+        except KeyboardInterrupt as e:
+            pass
+       
+    #End of Daemon     
+    if l.locked(): lr() #allow code to run
+    lidar.stop()
+    lidar.set_pwm(0)
+    lidar.disconnect()
+    print('SCAN STOPPED!')
 
 #Renderer
 def process_data(smq,sma,smd,sml,calls,dp):
@@ -125,24 +121,26 @@ def process_data(smq,sma,smd,sml,calls,dp):
                     h=mf((ms(sma[x]/q)*dist)+256)
                     v=mf((smq[x])*17)
                     dp((w,h),(v,v,v)) #drawing
-        except ValueError: #For Some Stupid Error Where Shared Memory Lists Decide that they have a Length of Zero for only one line
+        except ValueError as e: #For Some Error Where Shared Memory Lists Decide that they have a Length of Zero for only one line
+            if debug:
+                print('Caught Exception')
+                print(e)
+                print('Dist')
+                print(smd)
+                print('Angle')
+                print(sma)
+                print('Quality')
+                print(smq)
+                print('Len')
+                print(sml)
+                print('FIN')
+                print(len(smd))
+                print(len(sma))
+                print(len(smq))
+                print(len(sml))
+                print('Exception Handled')
             #Retry Frame Once
             process_data(smq,sma,smd,sml,calls+1,dp)
-            #print('Caught Exception')
-            #print('Dist')
-            #print(smd)
-            #print('Angle')
-            #print(sma)
-            #print('Quality')
-            #print(smq)
-            #print('Len')
-            #print(sml)
-            #print('FIN')
-            #print(len(smd))
-            #print(len(sma))
-            #print(len(smq))
-            #print(len(sml))
-            #print('Exception Handled')
     else:
         if debug: print('Dropped Frame')
         pass
@@ -151,14 +149,14 @@ def process_data(smq,sma,smd,sml,calls,dp):
 
 #Run Before Connect
 l=Lock()
-smq=shared_memory.ShareableList([0.0]*400)
-sma=shared_memory.ShareableList([0.0]*400)
-smd=shared_memory.ShareableList([0.0]*400)
-sml=shared_memory.ShareableList([0])
-sms=shared_memory.ShareableList([False])
+smq=shared_memory.ShareableList([0.0]*400) #Quality
+sma=shared_memory.ShareableList([0.0]*400) #Angle
+smd=shared_memory.ShareableList([0.0]*400) #Distance
+sml=shared_memory.ShareableList([0]) #Current Array Length
+sms=shared_memory.ShareableList([False]) #Stop Signal
 #Apperantly You have to Pass the Names, not the Objects of the Shared Memory
 p1=multiprocessing.Process(target=get_data,args=(smq.shm.name,sma.shm.name,smd.shm.name,sml.shm.name,sms.shm.name,l,port_name),daemon=True)
-p1.start()
+p1.start() #Start Daemon
 
 #Continuity Loop
 while True:
@@ -167,14 +165,14 @@ while True:
     print("Disconnected")
     print(tt())
     print(addr)
-    fw("Disconnected\n")
+    fw("Disconnected\n") #File Append
     fw(str(tt())+"\n")
     fw(str(addr[0])+", ")
     fw(str(addr[1])+"\n")
-    ff()
+    ff() #Write to File
     
     #Ctrl-C Handler
-    st(None)
+    st(None) #Set Timeout
     try:
         conn,addr=s.accept()
     except KeyboardInterrupt:
@@ -198,6 +196,12 @@ while True:
     #Client Timeout Handler
     try:
         data=conn.recv(buff)
+        if len(data)==0:
+            print("BOT!")
+            fw("BOT!\n")
+            conn.shutdown(rdwr)
+            conn.close()
+            continue
     except ste:
         print("BOT!")
         fw("BOT!\n")
@@ -208,6 +212,18 @@ while True:
         conn.shutdown(rdwr)
         conn.close()
         continue
+    except KeyboardInterrupt:
+        conn.shutdown(rdwr)
+        conn.close()
+        print("Disconnected")
+        print(tt())
+        print(addr)
+        fw("Disconnected\n") 
+        fw(str(tt())+"\n")
+        fw(str(addr[0])+", ")
+        fw(str(addr[1])+"\n")
+        ff()
+        break
     
     #Also Mandatory HTTP Headers
     ostr="HTTP/1.1 200 OK\r\nConnection: close\r\nServer: PyVidStreamServer MJPEG SERVER\r\nCache-Control: no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0\r\nPragma: no-cache\r\nExpires: -1\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: multipart/x-mixed-replace;boundary=R2lpaXUgU3dmYW5iY2o0\r\n\r\n"
@@ -226,25 +242,58 @@ while True:
         conn.shutdown(rdwr)
         conn.close()
         continue
+    except KeyboardInterrupt:
+        conn.shutdown(rdwr)
+        conn.close()
+        print("Disconnected")
+        print(tt())
+        print(addr)
+        fw("Disconnected\n") 
+        fw(str(tt())+"\n")
+        fw(str(addr[0])+", ")
+        fw(str(addr[1])+"\n")
+        ff()
+        break
+    
+    #Image Generation Only Once
+    img=Image.new('RGB',(512,512)) #512,512 is good size for split screens
+    draw=ImageDraw.Draw(img)
+    dp=draw.point
+    dr=draw.rectangle
+    ims=img.save
+    
+    #Quick Pre-Loop Speedup, speeding up locks
+    la=lock.acquire
+    lr=lock.release
     
     #Capture Loop
     while True:
         
-        a=tc()#Start Time for Frame Limiting
+        a=tc() #Start Time for Frame Limiting
                 
         #Image Initialization goes here
-        img=Image.new('RGB',(512,512)) #512,512 is good size for split screens
-        draw=ImageDraw.Draw(img)
-        dp=draw.point
-        dp((255,255),(0,0,255)) #RPLidar
+        dr([0,0,512,512],(0,0,0),(0,0,0)) #Black Out Image
+        dp((255,255),(0,0,255)) #RPLidar Dot
                         
         #Data Processing with Concurrent Updating
-        process_data(smq,sma,smd,sml,1,dp)
+        try:
+            la() #Locking #was only clear in Python 2 Docs, that only acquire does the blocking for lock
+            process_data(smq,sma,smd,sml,1,dp)
+            lr() #Unlocking
+        except KeyboardInterrupt:
+            conn.shutdown(rdwr)
+            conn.close()
+            break
         
         #Converting Raw Image into Compressed JPEG Bytes
-        with bio() as output:
-            img.save(output,format="JPEG",quality=25)
-            contents=output.getvalue()
+        try:
+            with bio() as output:
+                ims(output,format="JPEG",quality=75) #Quality of 50 is about Minimum
+                contents=output.getvalue()
+        except KeyboardInterrupt:
+            conn.shutdown(rdwr)
+            conn.close()
+            break
             
         #Concatenating Contents and Headers
         o=iostr
@@ -255,27 +304,53 @@ while True:
         #Sending Contents to Client
         try:
             cs(o)
-        except:
+        except ste:
+            print("Network Issues!")
+            fw("Network Issues!\n")
+            conn.shutdown(rdwr)            
+            conn.close()
+            break
+        except se:
+            conn.shutdown(rdwr)
+            conn.close()
+            break
+        except KeyboardInterrupt:
+            conn.shutdown(rdwr)
+            conn.close()
             break
             
+            
         #frame rate limiter
-        b=tc() #End Time for Frame Limiting
-        c=b-a
-        t=1/30 #seconds per frame
-        if t-c>0.0:
-            ts(t-c) #delay remaining seconds
-        elif c>t:
-            pass
-            #print(c)
+        try:
+            b=tc() #End Time for Frame Limiting
+            c=b-a
+            t=1/30 #seconds per frame
+            if t-c>0.0:
+                ts(t-c) #delay remaining seconds
+            elif c>t:
+                pass
+                if debug: print(c)
+                
+        except KeyboardInterrupt:
+            conn.shutdown(rdwr)
+            conn.close()
+            break
+    
+    #Proper Memory Usage
+    img.close()
             
 #End of Program (when Ctrl-C)
 f.close()
 s.close()
-#kill lidar
-l.acquire()
-sms[0]=True
-l.release()
+
+#Gracefully Kill RPLidar
+la() #Locking
+sms[0]=True #Graceful Shutdown Signal
+lr() #Unlocking
 p1.join() #Wait for Process to Finish
+p1.close() #Destroy the Daemon Process Object
+
+#Proper Shared Memory Closing
 smq.shm.close()
 smq.shm.unlink()
 sma.shm.close()
