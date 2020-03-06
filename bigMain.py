@@ -1,4 +1,4 @@
-#Copyright (c) 2019 UofRobotics
+#Copyright (c) 2020 Derek Frombach
 
 #Python RPLidar Visualisation Server over MJPEG
 #Compatible with VLC as HTTP stream
